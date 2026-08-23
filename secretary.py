@@ -4,8 +4,10 @@ import asyncio
 API_ID = 37376910
 API_HASH = "fb904e19f44d327aaad824ba0d01d381"
 
-client = TelegramClient('session', API_ID, API_HASH)
+# Строка сессии (создадим её позже)
+SESSION_STRING = ""
 
+client = TelegramClient('session', API_ID, API_HASH)
 is_online = False
 
 @client.on(events.NewMessage(pattern=r'\.offline'))
