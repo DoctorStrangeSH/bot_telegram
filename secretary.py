@@ -14,21 +14,18 @@ client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 # Московское время
 MOSCOW_TZ = timezone(timedelta(hours=3))
 
-# ID твоей группы (вставь сюда)
-GROUP_ID = -1001234567890  # ← СЮДА ID ГРУППЫ
-
-# ID тем (вставь сюда)
-TOPIC_INCOMING = 1  # Тема "Входящие"
-TOPIC_REMINDERS = 2  # Тема "Напоминания"
-TOPIC_STATS = 3  # Тема "Статистика"
-TOPIC_IMPORTANT = 4  # Тема "Важные"
+# ID группы и тем
+GROUP_ID = 1004368107724
+TOPIC_INCOMING = 2  # Входящие
+TOPIC_REMINDERS = 3  # Напоминания
+TOPIC_STATS = 4  # Статистика
+TOPIC_IMPORTANT = 5  # Важные
 
 # Статусы
 is_online = False
 white_list = []
 black_list = []
 message_stats = {}
-reminders = []
 
 def get_moscow_time():
     return datetime.now(MOSCOW_TZ)
@@ -61,11 +58,12 @@ async def send_to_topic(topic_id, message):
         await client.send_message(
             GROUP_ID,
             message,
-            reply_to=topic_id  # ID темы
+            reply_to=topic_id
         )
+        print(f"✅ Отправлено в тему {topic_id}")
     except Exception as e:
-        print(f"Ошибка отправки в тему: {e}")
-        # Фолбэк: отправляем в "Избранное"
+        print(f"❌ Ошибка отправки в тему: {e}")
+        # Фолбэк: в "Избранное"
         await client.send_message('me', message)
 
 # Команды
@@ -95,7 +93,7 @@ async def help_cmd(event):
 **.online** — включить онлайн
 **.offline** — включить автоответчик
 **.status** — проверить статус
-**.stats** — статистика
+**.stats** — статистика в группу
 **.remind** — напоминание
 **.addwhite** — белый список
 **.addblack** — чёрный список
@@ -103,7 +101,7 @@ async def help_cmd(event):
     
     await event.reply(help_text)
 
-# Команда .stats — статистика в тему
+# Команда .stats
 @client.on(events.NewMessage(pattern=r'\.stats'))
 async def show_stats(event):
     if not message_stats:
@@ -116,7 +114,6 @@ async def show_stats(event):
     for user_id, data in sorted_stats[:10]:
         stats_text += f"• {data['name']}: {data['count']} сообщ.\n"
     
-    # Отправляем в тему статистики
     await send_to_topic(TOPIC_STATS, stats_text)
     await event.reply('📊 Статистика отправлена в группу!')
 
@@ -137,12 +134,12 @@ async def set_reminder(event):
                 await asyncio.sleep(minutes * 60)
                 await send_to_topic(
                     TOPIC_REMINDERS,
-                    f'⏰ **НАПОМИНАНИЕ!**\n\n{reminder_text}\n\n🕐 Время: {get_moscow_time().strftime("%H:%M")}'
+                    f'⏰ **НАПОМИНАНИЕ!**\n\n{reminder_text}\n\n🕐 {get_moscow_time().strftime("%H:%M")}'
                 )
             
             asyncio.create_task(send_reminder())
         except ValueError:
-            await event.reply('Формат: .remind минуты текст\nНапример: .remind 30 Позвонить маме')
+            await event.reply('Формат: .remind минуты текст')
     else:
         await event.reply('Формат: .remind минуты текст')
 
@@ -199,7 +196,7 @@ async def auto_reply(event):
     if sender_id in black_list:
         return
     
-    # Белый список — в тему "Важные"
+    # Белый список
     if sender_id in white_list:
         await send_to_topic(
             TOPIC_IMPORTANT,
@@ -209,7 +206,7 @@ async def auto_reply(event):
             await event.reply(f'⚡️ {sender_name}, вы в белом списке!')
         return
     
-    # Обычные сообщения — в тему "Входящие"
+    # Обычные сообщения
     if not is_online:
         await event.reply(get_auto_reply(sender_name))
         await send_to_topic(
@@ -229,7 +226,7 @@ async def daily_report():
         
         # В 9:00 — утренний отчёт
         if now.hour == 9 and now.minute == 0:
-            report = f"☀️ **Утренний отчёт**\n\n📅 Дата: {now.strftime('%d.%m.%Y')}\n🕐 Время: {now.strftime('%H:%M')}\n\nЗа ночь сообщений: {len(message_stats)}"
+            report = f"☀️ **Утренний отчёт**\n\n📅 {now.strftime('%d.%m.%Y')}\n🕐 {now.strftime('%H:%M')}\n📊 Собеседников: {len(message_stats)}"
             await send_to_topic(TOPIC_STATS, report)
             await asyncio.sleep(60)
         
@@ -247,8 +244,8 @@ async def daily_report():
 async def main():
     await client.start()
     print('✅ Юзербот запущен!')
-    print(f'📁 Уведомления уходят в группу (ID: {GROUP_ID})')
-    print('Команды: .online, .offline, .status, .stats, .remind, .help')
+    print(f'📁 Группа: {GROUP_ID}')
+    print('📋 Темы: Входящие(2), Напоминания(3), Статистика(4), Важные(5)')
     
     # Запускаем планировщик
     asyncio.create_task(daily_report())
