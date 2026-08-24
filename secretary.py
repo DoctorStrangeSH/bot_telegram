@@ -28,10 +28,6 @@ async def check_status(event):
     status = "Онлайн" if is_online else "Оффлайн"
     await event.reply(f'Статус: {status}')
 
-@client.on(events.NewMessage(pattern=r'\.help'))
-async def help_cmd(event):
-    await event.reply('.online - включить онлайн\n.offline - включить автоответчик\n.status - проверить статус')
-
 @client.on(events.NewMessage(incoming=True))
 async def auto_reply(event):
     global is_online
@@ -47,15 +43,14 @@ async def auto_reply(event):
         sender_name = sender.first_name if sender.first_name else "Неизвестный"
         
         if not is_online:
-            await event.reply(f'😴 [Автоответчик]\n{sender_name}, я оффлайн! Отвечу позже.')
+            await event.reply(f'😴 [Автоответчик]\n{sender_name}, я оффлайн!')
             await client.send_message('me', f'📩 Сообщение от {sender_name}: {event.text}')
         else:
             await client.send_message('me', f'🔔 Сообщение от {sender_name}: {event.text}')
 
 async def main():
     await client.start()
-    print('✅ Юзербот запущен на Railway!')
-    print('Команды: .online, .offline, .status, .help')
+    print('✅ Юзербот запущен!')
     await client.run_until_disconnected()
 
 if __name__ == "__main__":
