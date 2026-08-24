@@ -1,11 +1,12 @@
 # analytics.py
 from datetime import datetime, timezone, timedelta
+from database import db  # ← Добавь этот импорт!
 
 MOSCOW_TZ = timezone(timedelta(hours=3))
 
 class Analytics:
-    def __init__(self, db):
-        self.db = db
+    def __init__(self, database):
+        self.db = database
     
     def get_daily_stats(self):
         """Статистика за сегодня"""
@@ -41,21 +42,15 @@ class Analytics:
             "messages_week": messages_week,
         }
     
-    def get_activity_by_hour(self):
-        """Активность по часам"""
-        self.db.cursor.execute('''
-            SELECT substr(timestamp, 12, 2) as hour, COUNT(*)
-            FROM messages
-            GROUP BY hour
-            ORDER BY hour
-        ''')
-        return self.db.cursor.fetchall()
+    def get_top_users(self, limit=5):
+        """Топ пользователей"""
+        return self.db.get_top_users(limit)
     
     def generate_report(self):
         """Генерация полного отчёта"""
         daily = self.get_daily_stats()
         weekly = self.get_weekly_stats()
-        top_users = self.db.get_top_users(5)
+        top_users = self.get_top_users(5)
         
         report = f"""📊 **ОТЧЁТ**
 
@@ -73,4 +68,5 @@ class Analytics:
         
         return report
 
+# Создаём экземпляр с db
 analytics = Analytics(db)
