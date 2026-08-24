@@ -2,17 +2,14 @@
 import asyncio
 import logging
 from datetime import datetime, timezone, timedelta
-from telethon import TelegramClient, events, Button
+from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 
 from config import *
 from database import db
 from filters import smart_filter
-from scheduler import Scheduler
 from analytics import analytics
-from keyboards import *
 from security import security
-from integrations import weather_api, currency_api
 
 # Логирование
 logging.basicConfig(
@@ -27,7 +24,7 @@ client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 # Состояние
 is_online = False
 current_mode = "normal"
-FILTER_MODE = "all"  # all, bot_only, whitelist
+FILTER_MODE = "all"
 
 def get_time():
     return datetime.now(MOSCOW_TZ)
@@ -37,30 +34,41 @@ def get_auto_reply(name):
     
     mode_replies = {
         "normal": {
-            (5, 12): f"☀️ Доброе утро, {name}! Sherlock скоро ответит.",
-            (12, 17): f"👨‍💻 Добрый день, {name}! Sherlock на связи.",
-            (17, 23): f"🌆 Добрый вечер, {name}! Sherlock отошёл.",
-            (0, 5): f"🌙 Ночь! Sherlock спит. Не будить!",
+            "morning": f"☀️ Доброе утро, {name}! Sherlock скоро ответит.",
+            "day": f"👨‍💻 Добрый день, {name}! Sherlock на связи.",
+            "evening": f"🌆 Добрый вечер, {name}! Sherlock отошёл.",
+            "night": f"🌙 Ночь! Sherlock спит. Не будить!",
         },
         "busy": {
-            (5, 23): f"😤 {name}, Sherlock очень занят!",
-            (0, 5): f"😤 {name}, даже ночью занят!",
+            "morning": f"😤 {name}, Sherlock очень занят!",
+            "day": f"😤 {name}, Sherlock на важном деле!",
+            "evening": f"😤 {name}, Sherlock работает!",
+            "night": f"😤 {name}, даже ночью занят!",
         },
         "sleeping": {
-            (5, 23): f"😴 {name}, Sherlock спит.",
-            (0, 5): f"😴 {name}, Sherlock крепко спит!",
+            "morning": f"😴 {name}, Sherlock ещё спит...",
+            "day": f"😴 {name}, Sherlock спит.",
+            "evening": f"😴 {name}, Sherlock уснул.",
+            "night": f"😴 {name}, Sherlock крепко спит!",
         },
         "meeting": {
-            (5, 23): f"🤝 {name}, Sherlock на встрече.",
-            (0, 5): f"🤝 {name}, встреча...",
+            "morning": f"🤝 {name}, Sherlock на встрече.",
+            "day": f"🤝 {name}, Sherlock на встрече.",
+            "evening": f"🤝 {name}, встреча затянулась...",
+            "night": f"🤝 {name}, встреча...",
         },
     }
     
-    for (start, end), reply in mode_replies[current_mode].items():
-        if start <= hour < end or (start == 0 and hour < end):
-            return reply
+    if 5 <= hour < 12:
+        time_key = "morning"
+    elif 12 <= hour < 17:
+        time_key = "day"
+    elif 17 <= hour < 23:
+        time_key = "evening"
+    else:
+        time_key = "night"
     
-    return f"Привет, {name}! Sherlock ответит позже."
+    return mode_replies[current_mode][time_key]
 
 async def send_to_topic(topic_id, message):
     try:
@@ -69,30 +77,67 @@ async def send_to_topic(topic_id, message):
     except Exception as e:
         logger.error(f"Ошибка отправки: {e}")
 
-# Инициализация планировщика
-scheduler = Scheduler(client, db, send_to_topic)
-
-# === КОМАНДЫ ===
+# === КОМАНДЫ (без кнопок) ===
 
 @client.on(events.NewMessage(pattern=r'\.menu'))
 async def show_menu(event):
-    await event.reply('🎛 **Главное меню:**', buttons=get_main_keyboard())
+    menu_text = """🎛 **МЕНЮ**
 
-@client.on(events.NewMessage(pattern=r'\.settings'))
-async def show_settings(event):
-    await event.reply('⚙️ **Настройки:**', buttons=get_settings_keyboard())
+**Статусы:**
+.online — включить онлайн
+.offline — включить оффлайн
+.status — проверить статус
+
+**Режимы:**
+.mode normal — обычный
+.mode busy — занят
+.mode sleeping — сплю
+.mode meeting — встреча
+
+**Инструменты:**
+.stats — статистика
+.analytics — аналитика
+.remind — напоминание
+
+**Списки:**
+.addwhite — белый список
+.addblack — чёрный список
+
+**Настройки:**
+.filter — фильтрация
+.help — все команды"""
+    
+    await event.reply(menu_text)
+
+@client.on(events.NewMessage(pattern=r'\.mode'))
+async def set_mode(event):
+    global current_mode
+    
+    text = event.text.replace('.mode', '').strip().lower()
+    modes = {
+        "normal": "😊 Обычный",
+        "busy": "😤 Занят",
+        "sleeping": "😴 Сплю",
+        "meeting": "🤝 Встреча",
+    }
+    
+    if text in modes:
+        current_mode = text
+        await event.reply(f'✅ Режим: {modes[text]}')
+    else:
+        await event.reply('Доступные режимы:\n.mode normal\n.mode busy\n.mode sleeping\n.mode meeting')
 
 @client.on(events.NewMessage(pattern=r'\.online'))
 async def set_online(event):
     global is_online
     is_online = True
-    await event.reply('✅ Онлайн!', buttons=get_main_keyboard())
+    await event.reply('✅ Онлайн!')
 
 @client.on(events.NewMessage(pattern=r'\.offline'))
 async def set_offline(event):
     global is_online
     is_online = False
-    await event.reply('🌙 Оффлайн!', buttons=get_main_keyboard())
+    await event.reply('🌙 Оффлайн!')
 
 @client.on(events.NewMessage(pattern=r'\.status'))
 async def check_status(event):
@@ -100,35 +145,65 @@ async def check_status(event):
     mode_names = {"normal": "😊 Обычный", "busy": "😤 Занят", "sleeping": "😴 Сплю", "meeting": "🤝 Встреча"}
     moscow_time = get_time().strftime("%H:%M")
     
-    text = f"📊 Статус: {status}\n🎭 Режим: {mode_names[current_mode]}\n🕐 Москва: {moscow_time}\n🔍 Фильтр: {FILTER_MODE}"
-    await event.reply(text, buttons=get_main_keyboard())
+    text = f"""📊 **СТАТУС**
+
+Состояние: {status}
+Режим: {mode_names[current_mode]}
+Время: {moscow_time} (МСК)
+Фильтр: {FILTER_MODE}"""
+    
+    await event.reply(text)
 
 @client.on(events.NewMessage(pattern=r'\.help'))
 async def help_cmd(event):
-    help_text = """📋 **Все команды:**
+    help_text = """📋 **ВСЕ КОМАНДЫ**
 
 **Основные:**
-`.menu` — меню
-`.status` — статус
-`.online` / `.offline` — смена статуса
+.menu — меню
+.status — статус
+.online / .offline — смена статуса
 
-**Фильтры:**
-`.filter` — настройка фильтрации
-`.addwhite` — белый список
-`.addblack` — чёрный список
+**Режимы:**
+.mode normal — обычный
+.mode busy — занят
+.mode sleeping — сплю
+.mode meeting — встреча
 
 **Инструменты:**
-`.stats` — статистика
-`.analytics` — аналитика
-`.remind` — напоминание
-`.weather` — погода
-`.currency` — курсы валют
+.stats — статистика
+.analytics — аналитика
+.remind минуты текст — напоминание
+
+**Списки:**
+.addwhite — белый список (ответом)
+.addblack — чёрный список (ответом)
 
 **Настройки:**
-`.settings` — меню настроек
-`.schedule` — расписание"""
+.filter — фильтрация
+.db — проверить базу данных"""
     
-    await event.reply(help_text, buttons=get_main_keyboard())
+    await event.reply(help_text)
+
+@client.on(events.NewMessage(pattern=r'\.db'))
+async def check_db(event):
+    """Проверка базы данных"""
+    try:
+        total_users = len(db.get_top_users(1000))
+        total_messages = db.get_total_messages()
+        white_list = db.get_white_list()
+        black_list = db.get_black_list()
+        
+        text = f"""🗄 **БАЗА ДАННЫХ**
+
+Пользователей: {total_users}
+Сообщений: {total_messages}
+Белый список: {len(white_list)}
+Чёрный список: {len(black_list)}
+Статус: ✅ Работает"""
+        
+        await event.reply(text)
+    except Exception as e:
+        await event.reply(f'❌ Ошибка БД: {e}')
 
 @client.on(events.NewMessage(pattern=r'\.filter'))
 async def change_filter(event):
@@ -138,27 +213,21 @@ async def change_filter(event):
     
     if text in ["all", "bot_only", "whitelist"]:
         FILTER_MODE = text
-        await event.reply(f'🔍 Фильтр изменён на: {text}')
+        await event.reply(f'🔍 Фильтр изменён: {text}')
     else:
-        filters = {
-            "all": "Все сообщения",
-            "bot_only": "Только с ботом",
-            "whitelist": "Только белый список"
-        }
-        current = filters.get(FILTER_MODE, "Неизвестно")
-        await event.reply(f'🔍 Текущий фильтр: {current}\n\nДля смены: .filter all | bot_only | whitelist')
+        await event.reply(f'Текущий фильтр: {FILTER_MODE}\n\nДля смены:\n.filter all — все\n.filter bot_only — только с ботом\n.filter whitelist — белый список')
 
 @client.on(events.NewMessage(pattern=r'\.stats'))
 async def show_stats(event):
     top_users = db.get_top_users(10)
     total_messages = db.get_total_messages()
     
-    stats_text = f"📊 **Статистика:**\n\n💬 Всего сообщений: {total_messages}\n\nТоп собеседников:\n"
+    stats_text = f"📊 **СТАТИСТИКА**\n\n💬 Сообщений: {total_messages}\n\nТоп собеседников:\n"
     for user_id, name, count in top_users:
         stats_text += f"• {name}: {count} сообщ.\n"
     
     await send_to_topic(TOPIC_STATS, stats_text)
-    await event.reply('📊 Статистика отправлена!')
+    await event.reply('📊 Отправлено в тему "Статистика"!')
 
 @client.on(events.NewMessage(pattern=r'\.analytics'))
 async def show_analytics(event):
@@ -176,20 +245,9 @@ async def set_reminder(event):
             reminder_text = parts[1]
             remind_at = (get_time() + timedelta(minutes=minutes)).isoformat()
             db.add_reminder(reminder_text, remind_at)
-            await event.reply(f'⏰ Напомню через {minutes} мин.')
+            await event.reply(f'⏰ Напомню через {minutes} мин: {reminder_text}')
         except ValueError:
             await event.reply('Формат: .remind минуты текст')
-
-@client.on(events.NewMessage(pattern=r'\.weather'))
-async def get_weather_cmd(event):
-    city = event.text.replace('.weather', '').strip() or "Moscow"
-    weather = await weather_api.get_weather(city)
-    await event.reply(weather)
-
-@client.on(events.NewMessage(pattern=r'\.currency'))
-async def get_currency_cmd(event):
-    rates = await currency_api.get_currency_message()
-    await event.reply(rates)
 
 @client.on(events.NewMessage(pattern=r'\.addwhite'))
 async def add_white(event):
@@ -198,6 +256,8 @@ async def add_white(event):
         db.set_white(reply_msg.sender_id, True)
         sender = await reply_msg.get_sender()
         await event.reply(f'✅ {sender.first_name} в белом списке!')
+    else:
+        await event.reply('Ответьте на сообщение командой .addwhite')
 
 @client.on(events.NewMessage(pattern=r'\.addblack'))
 async def add_black(event):
@@ -206,40 +266,8 @@ async def add_black(event):
         db.set_black(reply_msg.sender_id, True)
         sender = await reply_msg.get_sender()
         await event.reply(f'🚫 {sender.first_name} в чёрном списке!')
-
-# === ОБРАБОТКА КНОПОК ===
-
-@client.on(events.CallbackQuery)
-async def handle_buttons(event):
-    global is_online, current_mode, FILTER_MODE
-    
-    data = event.data.decode()
-    
-    if data == "online":
-        is_online = True
-        await event.edit('✅ Онлайн!', buttons=get_main_keyboard())
-    elif data == "offline":
-        is_online = False
-        await event.edit('🌙 Оффлайн!', buttons=get_main_keyboard())
-    elif data == "status":
-        status = "Онлайн" if is_online else "Оффлайн"
-        await event.edit(f'📊 Статус: {status}', buttons=get_main_keyboard())
-    elif data == "mode":
-        await event.edit('🎭 Режимы:', buttons=get_mode_keyboard())
-    elif data == "settings":
-        await event.edit('⚙️ Настройки:', buttons=get_settings_keyboard())
-    elif data == "analytics":
-        report = analytics.generate_report()
-        await event.edit(report[:1000], buttons=get_main_keyboard())
-    elif data == "back":
-        await event.edit('🎛 Меню:', buttons=get_main_keyboard())
-    elif data.startswith("mode_"):
-        current_mode = data.replace("mode_", "")
-        mode_names = {"normal": "😊 Обычный", "busy": "😤 Занят", "sleeping": "😴 Сплю", "meeting": "🤝 Встреча"}
-        await event.edit(f'Режим: {mode_names[current_mode]}', buttons=get_main_keyboard())
-    elif data.startswith("filter_"):
-        FILTER_MODE = data.replace("filter_", "")
-        await event.edit(f'🔍 Фильтр: {FILTER_MODE}', buttons=get_main_keyboard())
+    else:
+        await event.reply('Ответьте на сообщение командой .addblack')
 
 # === ОСНОВНОЙ ОБРАБОТЧИК ===
 
@@ -291,14 +319,7 @@ async def handle_messages(event):
     # Спам
     if category == "spam":
         db.set_black(sender_id, True)
-        logger.info(f"Спам от {sender_name}, добавлен в чёрный список")
-        return
-    
-    # Фильтр по режиму
-    if FILTER_MODE == "bot_only" and sender_id not in db.get_white_list():
-        return
-    
-    if FILTER_MODE == "whitelist" and sender_id not in white_list:
+        logger.info(f"Спам от {sender_name}")
         return
     
     # Обычная обработка
@@ -315,9 +336,6 @@ async def main():
     logger.info("✅ Бот запущен!")
     logger.info(f"📁 Группа: {GROUP_ID}")
     logger.info(f"🔍 Фильтр: {FILTER_MODE}")
-    
-    # Запускаем планировщик
-    await scheduler.start()
     
     await client.run_until_disconnected()
 
